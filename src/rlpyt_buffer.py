@@ -12,6 +12,8 @@ from rlpyt.utils.collections import namedarraytuple
 from rlpyt.utils.misc import extract_sequences
 import traceback
 
+import wandb
+
 PrioritizedSamples = namedarraytuple("PrioritizedSamples",
                                   ["samples", "priorities"])
 SamplesToBuffer = namedarraytuple("SamplesToBuffer",
@@ -110,6 +112,11 @@ class AsyncPrioritizedSequenceReplayFrameBufferExtended(AsyncPrioritizedSequence
             is_weights = (1. / (priorities + 1e-5)) ** self.beta
             is_weights /= max(is_weights)  # Normalize.
             is_weights = torchify_buffer(is_weights).float()
+
+            wandb.log({
+                'priorities': priorities.mean(),
+                'weights': is_weights.mean()
+            })
 
             elapsed_iters = self.t + self.T - T_idxs % self.T
             elapsed_samples = self.B*(elapsed_iters)

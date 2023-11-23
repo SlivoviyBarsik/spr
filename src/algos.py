@@ -1,4 +1,5 @@
 import torch
+import wandb
 
 from rlpyt.utils.collections import namedarraytuple
 from collections import namedtuple
@@ -48,6 +49,9 @@ class SPRCategoricalDQN(CategoricalDQN):
         self.model_rl_weight = model_rl_weight
         self.time_offset = time_offset
         self.jumps = jumps
+
+        wandb.define_metric("train_step")
+        wandb.define_metric("tr/*", step_metric="train_step")
 
         if not distributional:
             self.rl_loss = self.dqn_rl_loss
@@ -129,7 +133,7 @@ class SPRCategoricalDQN(CategoricalDQN):
         for _ in range(self.updates_per_optimize):
             samples_from_replay = self.replay_buffer.sample_batch(self.batch_size)
             loss, td_abs_errors, model_rl_loss, reward_loss,\
-            t0_spr_loss, model_spr_loss = self.loss(samples_from_replay)
+            t0_spr_loss, model_spr_loss, log_dict = self.loss(samples_from_replay)
             spr_loss = self.t0_spr_loss_weight*t0_spr_loss + self.model_spr_weight*model_spr_loss
             total_loss = loss + self.model_rl_weight*model_rl_loss \
                               + self.reward_loss_weight*reward_loss
@@ -146,6 +150,15 @@ class SPRCategoricalDQN(CategoricalDQN):
             self.optimizer.step()
             if self.prioritized_replay:
                 self.replay_buffer.update_batch_priorities(td_abs_errors)
+
+            log_dict.update({
+                "tr/loss": loss.item(),
+                "tr/grad_norm": grad_norm.item(),
+                "train_step": itr
+            })
+
+            wandb.log(log_dict)
+
             opt_info.loss.append(loss.item())
             opt_info.gradNorm.append(torch.tensor(grad_norm).item())  # grad_norm is a float sometimes, so wrap in tensor
             opt_info.modelRLLoss.append(model_rl_loss.item())
@@ -253,7 +266,12 @@ class SPRCategoricalDQN(CategoricalDQN):
             (torch.log(target_p) - p.detach()), dim=1)
         KL_div = torch.clamp(KL_div, EPS, 1 / EPS)  # Avoid <0 from NaN-guard.
 
-        return losses, KL_div.detach()
+        log_dict = {
+            'tr/p': p.mean(),
+            'tr/target_p': target_p.mean()
+        }
+
+        return losses, KL_div.detach(), log_dict
 
     def loss(self, samples):
         """
@@ -272,7 +290,7 @@ class SPRCategoricalDQN(CategoricalDQN):
                          samples.all_reward.to(self.agent.device),
                          train=True)  # [B,A,P]
 
-        rl_loss, KL = self.rl_loss(log_pred_ps[0], samples, 0)
+        rl_loss, KL, log_dict = self.rl_loss(log_pred_ps[0], samples, 0)
         if len(pred_rew) > 0:
             pred_rew = torch.stack(pred_rew, 0)
             with torch.no_grad():
@@ -308,6 +326,13 @@ class SPRCategoricalDQN(CategoricalDQN):
             model_spr_loss = model_spr_loss * weights
             reward_loss = reward_loss * weights
 
+            log_dict.update({
+                'tr/rl_loss_pre': rl_loss.mean(),
+                'tr/rl_loss_post': (rl_loss * weights).mean(),
+                'tr/KL': KL.mean()
+            })
+
+
             # RL losses are no longer scaled in the c51 function
             rl_loss = rl_loss * weights
             model_rl_loss = model_rl_loss * weights
@@ -316,4 +341,5 @@ class SPRCategoricalDQN(CategoricalDQN):
                model_rl_loss.mean(),\
                reward_loss.mean(), \
                spr_loss.mean(), \
-               model_spr_loss.mean(),
+               model_spr_loss.mean(), \
+               log_dict,

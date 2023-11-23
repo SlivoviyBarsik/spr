@@ -208,6 +208,12 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
         specified log interval.
         """
         n_itr = self.startup()
+        wandb.watch(self.agent.model, log='all', log_freq=10)
+
+        wandb.define_metric("data_step")
+        wandb.define_metric("entropy/*", step_metric="data_step")
+        wandb.define_metric("eps/*", step_metric="data_step")
+
         self.n_itr = n_itr
         with logger.prefix(f"itr #0 "):
             eval_traj_infos, eval_time = self.evaluate_agent(0)
@@ -267,6 +273,13 @@ class OneToOneSerialEvalCollector(SerialEvalCollector):
                                         agent_info[b], env_info)
                 if getattr(env_info, "traj_done", d):
                     completed_traj_infos.append(traj_infos[env_id].terminate(o))
+
+                    wandb.log({
+                        "eval_eps/ep_rew": traj_infos[env_id]['GameScore'],
+                        "eval_eps/ep_len": traj_infos[env_id]['Length'],
+                        "eval_eps/ep_mean_rew": traj_infos[env_id]['GameScore'] / traj_infos[env_id]['Length'],
+                        "eval_eps/ep_mean_clipped_rew": traj_infos[env_id]['Return'] / traj_infos[env_id]['Length']
+                    })
 
                     observation = delete_ind_from_array(observation, b)
                     reward = delete_ind_from_array(reward, b)

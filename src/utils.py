@@ -16,6 +16,9 @@ class dummy_context_mgr:
 def set_config(args, game):
     # TODO: Use Hydra to manage configs
     config = configs['ernbw']
+
+    config["experiment"] = args.exp
+
     config['env']['game'] = game
     config["env"]["grayscale"] = args.grayscale
     config["env"]["num_img_obs"] = args.framestack

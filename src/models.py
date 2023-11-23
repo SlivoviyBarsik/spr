@@ -481,9 +481,7 @@ class SPRCatDqnModel(torch.nn.Module):
             # Infer (presence of) leading dimensions: [T,B], [B], or [].
             lead_dim, T, B, img_shape = infer_leading_dims(img, 3)
 
-            conv_out = self.conv(img.view(T * B, *img_shape))  # Fold if T dimension.
-            if self.renormalize:
-                conv_out = renormalize(conv_out, -3)
+            conv_out = self.stem_forward(img)
             p = self.head(conv_out)
 
             if self.distributional:

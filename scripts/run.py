@@ -54,7 +54,7 @@ def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None):
         sampler=sampler,
         n_steps=args.n_steps,
         affinity=dict(cuda_idx=cuda_idx),
-        log_interval_steps=args.n_steps//args.num_logs,
+        log_interval_steps=1500,
         seed=args.seed,
         final_eval_only=args.final_eval_only,
     )
@@ -132,6 +132,8 @@ if __name__ == "__main__":
     parser.add_argument('--cuda_idx', help='gpu to use ', type=int, default=0)
     parser.add_argument('--max-grad-norm', type=float, default=10., help='Max Grad Norm')
     parser.add_argument('--public', action='store_true', help='If set, uses anonymous wandb logging')
+
+    parser.add_argument('--exp', type=str)
     args = parser.parse_args()
 
     if args.public:
