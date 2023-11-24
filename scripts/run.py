@@ -7,6 +7,8 @@ should improve the efficiency of the forward/backward passes during training.
 (But both settings may impact hyperparameter selection and learning.)
 
 """
+import os
+import pwd
 from rlpyt.experiments.configs.atari.dqn.atari_dqn import configs
 from rlpyt.samplers.serial.sampler import SerialSampler
 from rlpyt.envs.atari.atari_env import AtariTrajInfo
@@ -24,7 +26,7 @@ from src.rlpyt_atari_env import AtariEnv
 from src.utils import set_config
 
 
-def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None):
+def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None, start: int=0):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     env = AtariEnv
@@ -62,7 +64,7 @@ def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None):
     name = "dqn_" + game
     log_dir = "logs"
     with logger_context(log_dir, run_ID, name, config, snapshot_mode="last"):
-        runner.train()
+        runner.train(start)
 
     quit()
 
@@ -136,12 +138,26 @@ if __name__ == "__main__":
     parser.add_argument('--exp', type=str)
     args = parser.parse_args()
 
+    chpt_path = os.path.join(
+        './checkpoint', pwd.getpwuid(os.getuid())[0],
+        str(os.environ.get('SLURM_JOB_ID')), 'ch.pt')
+    
+    if os.path.exists(chpt_path):
+        chpt = torch.load(chpt_path)
+        start = chpt['itr']
+        wandb_id = chpt['wandb_id']
+    else:
+        start = 0
+        wandb_id = None
+
+
     if args.public:
-        wandb.init(anonymous="allow", config=args, tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
+        wandb.init(anonymous="allow", config=args, id=wandb_id,
+                   tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
     else:
         wandb.init(project=args.project, entity=args.entity, config=args, tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
     wandb.config.update(vars(args))
     build_and_train(game=args.game,
                     cuda_idx=args.cuda_idx,
-                    args=args)
+                    args=args, start=start)
 

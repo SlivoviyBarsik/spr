@@ -1,3 +1,5 @@
+import os
+import pwd
 import torch
 import wandb
 
@@ -10,6 +12,7 @@ from rlpyt.utils.logging import logger
 from src.rlpyt_buffer import AsyncPrioritizedSequenceReplayFrameBufferExtended, \
     AsyncUniformSequenceReplayFrameBufferExtended
 from src.models import from_categorical, to_categorical
+from src.replay_buffer import ReplayBuffer
 SamplesToBuffer = namedarraytuple("SamplesToBuffer",
     ["observation", "action", "reward", "done"])
 ModelSamplesToBuffer = namedarraytuple("SamplesToBuffer",
@@ -82,7 +85,8 @@ class SPRCategoricalDQN(CategoricalDQN):
             # replay_kwargs["input_priorities"] = self.input_priorities
             buffer = AsyncPrioritizedSequenceReplayFrameBufferExtended(**replay_kwargs)
         else:
-            buffer = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+            # buffer = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+            buffer = ReplayBuffer(**replay_kwargs)
 
         self.replay_buffer = buffer
 
@@ -102,6 +106,31 @@ class SPRCategoricalDQN(CategoricalDQN):
             self.optimizer.load_state_dict(self.initial_optim_state_dict)
         if self.prioritized_replay:
             self.pri_beta_itr = max(1, self.pri_beta_steps // self.sampler_bs)
+
+    def initialize(self, *args, **kwargs):
+        self.chpt_path = os.path.join(
+            './checkpoint', pwd.getpwuid(os.getuid())[0],
+            str(os.environ.get('SLURM_JOB_ID')), 'ch.pt')
+        super().initialize(*args, **kwargs)
+
+        if os.path.exists(self.chpt_path):
+            chpt = torch.load(self.chpt_path)
+            self.agent.model.load_state_dict(chpt['model'])
+            self.agent.update_target()
+    
+            self.replay_buffer.restart_from_chpt(chpt['itr'])
+
+    def make_chpt(self, itr: int) -> None:
+        data = dict(
+            wandb_id=wandb.run.id,
+            itr=itr,
+            model=self.agent.model.state_dict()
+        )
+        os.makedirs(os.path.dirname(self.chpt_path), exist_ok=True)
+        temp_path = os.path.join(os.path.dirname(self.chpt_path), "temp.pt")
+
+        torch.save(data, temp_path)
+        os.replace(temp_path, self.chpt_path)
 
     def samples_to_buffer(self, samples):
         """Defines how to add data from sampler into the replay buffer. Called
@@ -222,13 +251,15 @@ class SPRCategoricalDQN(CategoricalDQN):
         return losses, td_abs_errors
 
     def dist_rl_loss(self, log_pred_ps, samples, index):
+        obs, action, reward, next_obs, done, weights = samples
+
         delta_z = (self.V_max - self.V_min) / (self.agent.n_atoms - 1)
         z = torch.linspace(self.V_min, self.V_max, self.agent.n_atoms)
         # Make 2-D tensor of contracted z_domain for each data point,
         # with zeros where next value should not be added.
         next_z = z * (self.discount ** self.n_step_return)  # [P']
-        next_z = torch.ger(1 - samples.done_n[index].float(), next_z)  # [B,P']
-        ret = samples.return_[index].unsqueeze(1)  # [B,1]
+        next_z = torch.ger(1 - done.float().squeeze(-1), next_z)  # [B,P']
+        ret = reward  # [B,1]
         next_z = torch.clamp(ret + next_z, self.V_min, self.V_max)  # [B,P']
 
         z_bc = z.view(1, -1, 1)  # [1,P,1]
@@ -241,13 +272,9 @@ class SPRCategoricalDQN(CategoricalDQN):
         # dim-2: next_z atoms (summed in projection)
 
         with torch.no_grad():
-            target_ps = self.agent.target(samples.all_observation[index + self.n_step_return],
-                                          samples.all_action[index + self.n_step_return],
-                                          samples.all_reward[index + self.n_step_return])  # [B,A,P']
+            target_ps = self.agent.target(next_obs.float().cuda(), action, reward)  # [B,A,P']
             if self.double_dqn:
-                next_ps = self.agent(samples.all_observation[index + self.n_step_return],
-                                     samples.all_action[index + self.n_step_return],
-                                     samples.all_reward[index + self.n_step_return])  # [B,A,P']
+                next_ps = self.agent(next_obs.float().cuda(), action, reward)  # [B,A,P']
                 next_qs = torch.tensordot(next_ps, z, dims=1)  # [B,A]
                 next_a = torch.argmax(next_qs, dim=-1)  # [B]
             else:
@@ -256,7 +283,7 @@ class SPRCategoricalDQN(CategoricalDQN):
             target_p_unproj = select_at_indexes(next_a, target_ps)  # [B,P']
             target_p_unproj = target_p_unproj.unsqueeze(1)  # [B,1,P']
             target_p = (target_p_unproj * projection_coeffs).sum(-1)  # [B,P]
-        p = select_at_indexes(samples.all_action[index + 1].squeeze(-1),
+        p = select_at_indexes(action.squeeze(-1).int(),
                               log_pred_ps.cpu())  # [B,P]
         # p = torch.clamp(p, EPS, 1)  # NaN-guard.
         losses = -torch.sum(target_p * p, dim=1)  # Cross-entropy.
@@ -283,21 +310,22 @@ class SPRCategoricalDQN(CategoricalDQN):
         """
         if self.model.noisy:
             self.model.head.reset_noise()
-        # start = time.time()
+        
+        for i in range(len(samples)):
+            samples[i] = torch.from_numpy(samples[i])
+
+        obs, action, reward, next_obs, done, weights = samples
         log_pred_ps, pred_rew, spr_loss\
-            = self.agent(samples.all_observation.to(self.agent.device),
-                         samples.all_action.to(self.agent.device),
-                         samples.all_reward.to(self.agent.device),
-                         train=True)  # [B,A,P]
+            = self.agent(obs.float().unsqueeze(0), action, reward, train=True)  # [B,A,P]
 
         rl_loss, KL, log_dict = self.rl_loss(log_pred_ps[0], samples, 0)
         if len(pred_rew) > 0:
             pred_rew = torch.stack(pred_rew, 0)
             with torch.no_grad():
-                reward_target = to_categorical(samples.all_reward[:self.jumps+1].flatten().to(self.agent.device), limit=1).view(*pred_rew.shape)
+                reward_target = to_categorical(reward.flatten().to(self.agent.device), limit=1).view(*pred_rew.shape)
             reward_loss = -torch.sum(reward_target * pred_rew, 2).mean(0).cpu()
         else:
-            reward_loss = torch.zeros(samples.all_observation.shape[1],)
+            reward_loss = torch.zeros(obs.shape[1],)
         model_rl_loss = torch.zeros_like(reward_loss)
 
         if self.model_rl_weight > 0:
@@ -307,7 +335,7 @@ class SPRCategoricalDQN(CategoricalDQN):
                                                    i)
                     model_rl_loss = model_rl_loss + jump_rl_loss
 
-        nonterminals = 1. - torch.sign(torch.cumsum(samples.done.to(self.agent.device), 0)).float()
+        nonterminals = 1. - torch.sign(torch.cumsum(done.to(self.agent.device), 0)).float()
         nonterminals = nonterminals[self.model.time_offset:
                                     self.jumps + self.model.time_offset+1]
         spr_loss = spr_loss*nonterminals
@@ -321,7 +349,7 @@ class SPRCategoricalDQN(CategoricalDQN):
         model_spr_loss = model_spr_loss.cpu()
         reward_loss = reward_loss.cpu()
         if self.prioritized_replay:
-            weights = samples.is_weights
+            # weights = samples.is_weights
             spr_loss = spr_loss * weights
             model_spr_loss = model_spr_loss * weights
             reward_loss = reward_loss * weights
@@ -333,9 +361,9 @@ class SPRCategoricalDQN(CategoricalDQN):
             })
 
 
-            # RL losses are no longer scaled in the c51 function
-            rl_loss = rl_loss * weights
-            model_rl_loss = model_rl_loss * weights
+        # RL losses are no longer scaled in the c51 function
+        rl_loss = rl_loss * weights
+        # model_rl_loss = model_rl_loss * weights
 
         return rl_loss.mean(), KL, \
                model_rl_loss.mean(),\
