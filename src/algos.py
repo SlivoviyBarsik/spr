@@ -1,5 +1,6 @@
 import os
 import pwd
+from typing import Dict, List
 import torch
 import wandb
 
@@ -144,7 +145,7 @@ class SPRCategoricalDQN(CategoricalDQN):
             value=samples.agent.agent_info.p,
         )
 
-    def optimize_agent(self, itr, samples=None, sampler_itr=None):
+    def optimize_agent(self, itr, samples=None, sampler_itr=None, traj_infos: List[Dict]=None):
         """
         Extracts the needed fields from input samples and stores them in the
         replay buffer.  Then samples from the replay buffer to train the agent
@@ -155,7 +156,7 @@ class SPRCategoricalDQN(CategoricalDQN):
         itr = itr if sampler_itr is None else sampler_itr  # Async uses sampler_itr.=
         if samples is not None:
             samples_to_buffer = self.samples_to_buffer(samples)
-            self.replay_buffer.append_samples(samples_to_buffer)
+            self.replay_buffer.append_samples(samples_to_buffer, traj_infos)
         opt_info = ModelOptInfo(*([] for _ in range(len(ModelOptInfo._fields))))
         if itr < self.min_itr_learn:
             return opt_info

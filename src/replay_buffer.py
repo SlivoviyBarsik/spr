@@ -3,11 +3,13 @@ import io
 import os
 import pwd
 import torch
-from typing import List, NamedTuple, Tuple
+from typing import Dict, List, NamedTuple, Tuple
 from multiprocessing.shared_memory import SharedMemory
 
 import numpy as np
 from multiprocessing import shared_memory, Value
+
+import wandb
 
 
 def make_shm(base_name: str='', replay_buffer_size: int=1000000, img_size: int=84, channel_dim: int=1) -> List[SharedMemory]:
@@ -65,9 +67,18 @@ class ReplayBuffer(object):
         
         os.makedirs(self.buffer_dir, exist_ok=True)
 
+        self.reset_log_dict()
+
     def __len__(self) -> int:
         return self._next_idx.value
 
+    def reset_log_dict(self):
+        self.eps_dict = {
+            'eps/rew': 0,
+            'eps/len': 0,
+            'eps/mean_clipped_rew': 0.,
+            'eps/mean_rew': 0.
+        }
 
     def can_sample(self, n_samples: int) -> bool:
         """
@@ -79,7 +90,28 @@ class ReplayBuffer(object):
         """
         return len(self) >= n_samples
 
-    def append_samples(self, samples: NamedTuple) -> None:
+    def append_samples(self, samples: NamedTuple, traj_infos: List[Dict]) -> None:
+        action_probs = samples.value.softmax(-1)
+        step_dict = {
+           'entropy/entropy': -(action_probs * action_probs.log()).sum(),
+           'entropy/max_prob': action_probs.max(),
+           'data_step': self._next_idx.value
+        }
+
+        self.eps_dict['eps/rew'] += traj_infos[0]['GameScore']
+        self.eps_dict['eps/mean_rew'] += traj_infos[0]['GameScore']
+        self.eps_dict['eps/mean_clipped_rew'] += samples.reward
+        self.eps_dict['eps/len'] += 1
+
+        if any(samples.done):
+            self.eps_dict['eps/mean_rew'] /= self.eps_dict['eps/len']
+            self.eps_dict['eps/mean_clipped_rew'] /= self.eps_dict['eps/len']
+            
+            step_dict.update(self.eps_dict)
+            self.reset_log_dict()
+
+        wandb.log(step_dict)
+        
         self.add(
             samples.observation.flatten(0,2)[-1], # spr gives the obs stacked along the first dimension (we dont want to store the same data mult times)
             samples.action, 
