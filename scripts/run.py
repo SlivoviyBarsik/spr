@@ -138,10 +138,10 @@ if __name__ == "__main__":
     parser.add_argument('--exp', type=str)
     args = parser.parse_args()
 
+    slurm_id = str(os.environ.get('SLURM_JOB_ID'))
     chpt_path = os.path.join(
-        './checkpoint', pwd.getpwuid(os.getuid())[0],
-        str(os.environ.get('SLURM_JOB_ID')), 'ch.pt')
-    
+        './checkpoint', pwd.getpwuid(os.getuid())[0], slurm_id, 'ch.pt')
+
     if os.path.exists(chpt_path):
         chpt = torch.load(chpt_path)
         start = chpt['itr']
@@ -157,6 +157,7 @@ if __name__ == "__main__":
     else:
         wandb.init(project=args.project, entity=args.entity, config=args, tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
     wandb.config.update(vars(args))
+    wandb.config.update({'slurm_id': slurm_id})
     build_and_train(game=args.game,
                     cuda_idx=args.cuda_idx,
                     args=args, start=start)
