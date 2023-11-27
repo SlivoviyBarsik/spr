@@ -62,7 +62,7 @@ class ReplayBuffer(object):
         self.gamma = discount
 
         self.buffer_dir = os.path.join(
-            './checkpoint', pwd.getpwuid(os.getuid())[0], 
+            '/checkpoint', pwd.getpwuid(os.getuid())[0], 
             str(os.environ.get('SLURM_JOB_ID')), 'buffer')
         
         os.makedirs(self.buffer_dir, exist_ok=True)
@@ -74,10 +74,10 @@ class ReplayBuffer(object):
 
     def reset_log_dict(self):
         self.eps_dict = {
-            'eps/rew': 0,
-            'eps/len': 0,
-            'eps/mean_clipped_rew': 0.,
-            'eps/mean_rew': 0.
+            'eps/ep_rew': 0,
+            'eps/ep_len': 0,
+            'eps/ep_mean_clipped_rew': 0.,
+            'eps/ep_mean_rew': 0.
         }
 
     def can_sample(self, n_samples: int) -> bool:
@@ -98,14 +98,14 @@ class ReplayBuffer(object):
            'data_step': self._next_idx.value
         }
 
-        self.eps_dict['eps/rew'] += traj_infos[0]['GameScore']
-        self.eps_dict['eps/mean_rew'] += traj_infos[0]['GameScore']
-        self.eps_dict['eps/mean_clipped_rew'] += samples.reward
-        self.eps_dict['eps/len'] += 1
+        self.eps_dict['eps/ep_rew'] += traj_infos[0]['GameScore']
+        self.eps_dict['eps/ep_mean_rew'] += traj_infos[0]['GameScore']
+        self.eps_dict['eps/ep_mean_clipped_rew'] += samples.reward
+        self.eps_dict['eps/ep_len'] += 1
 
         if any(samples.done):
-            self.eps_dict['eps/mean_rew'] /= self.eps_dict['eps/len']
-            self.eps_dict['eps/mean_clipped_rew'] /= self.eps_dict['eps/len']
+            self.eps_dict['eps/ep_mean_rew'] /= self.eps_dict['eps/ep_len']
+            self.eps_dict['eps/ep_mean_clipped_rew'] /= self.eps_dict['eps/ep_len']
             
             step_dict.update(self.eps_dict)
             self.reset_log_dict()

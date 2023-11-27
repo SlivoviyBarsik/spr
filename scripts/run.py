@@ -139,7 +139,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     chpt_path = os.path.join(
-        './checkpoint', pwd.getpwuid(os.getuid())[0],
+        '/checkpoint', pwd.getpwuid(os.getuid())[0],
         str(os.environ.get('SLURM_JOB_ID')), 'ch.pt')
     
     if os.path.exists(chpt_path):

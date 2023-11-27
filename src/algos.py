@@ -110,7 +110,7 @@ class SPRCategoricalDQN(CategoricalDQN):
 
     def initialize(self, *args, **kwargs):
         self.chpt_path = os.path.join(
-            './checkpoint', pwd.getpwuid(os.getuid())[0],
+            '/checkpoint', pwd.getpwuid(os.getuid())[0],
             str(os.environ.get('SLURM_JOB_ID')), 'ch.pt')
         super().initialize(*args, **kwargs)
 
