@@ -137,8 +137,8 @@ class ReplayBuffer(object):
         
         required_steps = self.n_stacked_frames + self.n_steps_return
 
-        if idx > required_steps and not np.any(self._done_storage[idx - required_steps:idx]):
-            self._valid_idxs[idx - self.n_steps_return] = 1
+        # if idx > required_steps and not np.any(self._done_storage[idx - required_steps:idx]):
+        #     self._valid_idxs[idx - self.n_steps_return] = 1
 
         self._next_idx.value = idx + 1
 
@@ -147,12 +147,27 @@ class ReplayBuffer(object):
 
 
     def _encode_sample(self, idxes: np.ndarray) -> List:
-        observations = np.stack([self._obs_storage[i-self.n_stacked_frames+1:i+1] for i in idxes])
-        next_observations = np.stack(
-            [self._obs_storage[i+self.n_steps_return-self.n_stacked_frames+1:i+self.n_steps_return+1] for i in idxes])
-        rewards = np.array(
-            [np.dot(np.power(self.gamma, np.arange(self.n_steps_return)), self._reward_storage[i:i+self.n_steps_return]) for i in idxes])
+        observations = []
+        rewards = []
+        gamma_support = np.power(self.gamma, np.arange(self.n_step))
 
+        for i in idxes:
+            if i + 1 < self.n_stacked:
+                pad = np.zeros((self.n_stacked - i - 1, *self._obs_storage[i].shape))
+                obs_i = np.concatenate((pad, self._obs_storage[:i + 1]))
+            else:
+                obs_i = self._obs_storage[i - self.n_stacked + 1: i + 1]
+            observations.append(obs_i)
+
+            multiplier = np.expand_dims((1 - self._done_storage[i:i+self.n_step].cumsum()) + self._done_storage[i:i+self.n_step].squeeze(-1), -1)
+            r_i = np.dot(gamma_support, self._reward_storage[i:i+self.n_step] * multiplier)
+            rewards.append(r_i)
+
+        observations = np.stack(observations)
+        next_observations = np.stack(
+            [self._obs_storage[i+self.n_step-self.n_stacked+1:i+self.n_step+1] for i in idxes])
+        
+        rewards = np.stack(rewards)
         return [observations,
                 self._action_storage[idxes],
                 rewards,
@@ -175,7 +190,7 @@ class ReplayBuffer(object):
             - done_mask: (numpy bool) done_mask[i] = 1 if executing act_batch[i] resulted in the end of an episode
                 and 0 otherwise.
         """
-        idxes = np.random.randint(self.n_stacked_frames, len(self) - 1, size=batch_size)
+        idxes = np.random.randint(self.n_stacked_frames, len(self) - self.n_steps_return, size=batch_size)
         return self._encode_sample(idxes)
 
 
@@ -185,7 +200,7 @@ class ReplayBuffer(object):
             self._action_storage[start_idx:stop_idx],
             self._reward_storage[start_idx:stop_idx],
             self._done_storage[start_idx:stop_idx],
-            self._valid_idxs[start_idx:stop_idx]
+            # self._valid_idxs[start_idx:stop_idx]
         )
         fn = os.path.join(self.buffer_dir, f"batch_{start_idx:08d}_{stop_idx:08d}.npz")
         save_data(data, fn)
@@ -200,7 +215,7 @@ class ReplayBuffer(object):
 
         fns = sorted(glob.glob(f'{self.buffer_dir}/*.npz'))
         for fn in fns:
-            obs, actions, rewards, done, valid = load_data(fn)
+            obs, actions, rewards, done = load_data(fn)
             
             _, env_step, _ = os.path.splitext(os.path.basename(fn))[0].split('_')
             env_step = int(env_step)
@@ -242,4 +257,4 @@ def save_data(data, fn: str) -> None:
 def load_data(fn: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     with open(fn, 'rb') as f:
         episode = np.load(f)
-        return episode['arr_0.npy'], episode['arr_1.npy'], episode['arr_2.npy'], episode['arr_3.npy'], episode['arr_4.npy']
+        return episode['arr_0.npy'], episode['arr_1.npy'], episode['arr_2.npy'], episode['arr_3.npy']
