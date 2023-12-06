@@ -19,6 +19,7 @@ def set_config(args, game):
 
     config["experiment"] = args.exp
 
+    config['env']['episodic_lives'] = args.ep_lives
     config['env']['game'] = game
     config["env"]["grayscale"] = args.grayscale
     config["env"]["num_img_obs"] = args.framestack

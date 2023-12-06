@@ -396,6 +396,28 @@ class SerialSampler(BaseSampler):
         # self.samples_np[:] = 0  # Unnecessary and may take time.
         agent_inputs, traj_infos, completed_infos = self.collector.collect_batch(
             self.agent_inputs, self.traj_infos, itr)
+        
+        obs_pyt, act_pyt, rew_pyt = torchify_buffer(self.agent_inputs)
+        act_pyt, agent_info = self.collector.agent.step(obs_pyt, act_pyt, rew_pyt)
+
+        act_probs = agent_info.p.softmax(-1)
+        log_dict = {
+            "entropy/entropy": -(act_probs * act_probs.log()).sum().item(),
+            "entropy/max_prob": act_probs.max().item(),
+            "data_step": itr
+        }
+
+        if len(completed_infos):
+            for inf in completed_infos:
+                log_dict.update({
+                    "eps/ep_rew": inf['GameScore'],
+                    "eps/ep_len": inf['Length'],
+                    "eps/ep_mean_rew": inf['GameScore'] / inf['Length'],
+                    "eps/ep_mean_clipped_rew": inf['Return'] / inf['Length']
+                })
+
+        wandb.log(log_dict)
+
         self.collector.reset_if_needed(agent_inputs)
         self.agent_inputs = agent_inputs
         self.traj_infos = traj_infos

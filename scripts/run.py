@@ -134,6 +134,7 @@ if __name__ == "__main__":
     parser.add_argument('--public', action='store_true', help='If set, uses anonymous wandb logging')
 
     parser.add_argument('--exp', type=str)
+    parser.add_argument('--ep-lives', type=int, default=1)
     args = parser.parse_args()
 
     if args.public:
