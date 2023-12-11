@@ -116,7 +116,7 @@ model_kwargs = dict(
     model_rl=0.0,
     residual_tm=0.0,
 )
-wandb.init(project="spr vs ours", group="spr")
+wandb.init(project="spr vs ours", group="spr detr")
 wandb.define_metric("itr")
 wandb.define_metric("tr/*", step_metric="itr")
 wandb.define_metric("eps/*", step_metric="itr")
@@ -180,8 +180,13 @@ data_log = {
     "eps/len": 0,
 }
 
-for i in range(10000):
-    batch = rb.sample_batch(16)
+for i in range(100000):
+    idxes = np.arange(i, i + 16) % rb.t
+    batch = rb.extract_batch(idxes, np.zeros_like(idxes), rb.batch_T)
+    values = torch.from_numpy(extract_sequences(rb.samples.value, idxes, np.zeros_like(idxes), 12))
+    elapsed_iters = rb.t + rb.T - idxes % rb.T
+    elapsed_samples = rb.B * (elapsed_iters)
+    batch = SamplesFromReplayExt(*batch, values=values, age=elapsed_samples)
     loss = algo.loss(batch)[0]
 
     algo.optimizer.zero_grad()
