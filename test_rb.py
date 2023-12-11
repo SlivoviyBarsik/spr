@@ -116,7 +116,7 @@ model_kwargs = dict(
     model_rl=0.0,
     residual_tm=0.0,
 )
-wandb.init(project="spr vs ours", name="spr")
+wandb.init(project="spr vs ours", group="spr")
 wandb.define_metric("itr")
 wandb.define_metric("tr/*", step_metric="itr")
 wandb.define_metric("eps/*", step_metric="itr")
