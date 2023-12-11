@@ -1,3 +1,7 @@
+from argparse import ArgumentParser
+import glob
+import os
+import time
 import numpy as np
 import torch
 import wandb
@@ -8,8 +12,9 @@ from rlpyt.spaces.int_box import IntBox
 
 from src.rlpyt_buffer import AsyncUniformSequenceReplayFrameBufferExtended, SamplesFromReplayExt
 from src.algos import ModelSamplesToBuffer, SPRCategoricalDQN
+from src.replay_buffer import ReplayBuffer
 
-from src.rlpyt_atari_env import EnvInfo
+from src.rlpyt_atari_env import EnvInfo, AtariEnv
 from src.agent import AgentInfo, SPRAgent
 from src.models import SPRCatDqnModel
 from rlpyt.utils.misc import extract_sequences
@@ -39,7 +44,16 @@ replay_kwargs = dict(
             n_step_return=10,
             rnn_state_interval=0,
         )
-rb = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+
+parser = ArgumentParser()
+parser.add_argument('--ours', action='store_true')
+args = parser.parse_args()
+
+if args.ours:
+    rb = ReplayBuffer(**replay_kwargs)
+else:
+    rb = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+
 
 algo_kwargs = dict(
     optim_kwargs=dict(
@@ -102,7 +116,11 @@ model_kwargs = dict(
     model_rl=0.0,
     residual_tm=0.0,
 )
-wandb.init()
+wandb.init(project="spr vs ours", name="spr")
+wandb.define_metric("itr")
+wandb.define_metric("tr/*", step_metric="itr")
+wandb.define_metric("eps/*", step_metric="itr")
+
 algo = SPRCategoricalDQN(**algo_kwargs)
 agent = SPRAgent(ModelCls=SPRCatDqnModel, model_kwargs=model_kwargs, **agent_kwargs)
 
@@ -120,24 +138,28 @@ algo.initialize(
     rank=0,
 )
 
-for i in range(100):
+for fn in sorted(glob.glob(f'../rb/*.pt')):
+    data = torch.load(fn)
     samples = ModelSamplesToBuffer(
-        observation = torch.ones((1,1,4,1,84,84)).float() * i,
-        action = torch.ones((1,1)).int() * (i % 7),
-        reward = torch.ones((1,1)) * i,
-        done = torch.ones((1,1)) * (i == 5),
-        value = torch.ones((1,1,7)) * i,
+        observation = data['obs'].unsqueeze(0),
+        action = torch.tensor([data['action']]).unsqueeze(0),
+        reward = torch.tensor([data['reward'][0]]).unsqueeze(0),
+        done = torch.tensor([data['done'][0]]).unsqueeze(0),
+        value = torch.ones((1,1,7)) * int(fn.split('/')[-1].split('.')[0]),
     )
     rb.append_samples(samples)
 
-# rb.sample_batch(10)
+env = AtariEnv(game="assault", episodic_lives=False, seed=0)
 
-idxes = np.arange(6) + 1
-batch = rb.extract_batch(idxes, np.zeros_like(idxes), 1)
-values = torch.from_numpy(extract_sequences(rb.samples.value, idxes, np.zeros_like(idxes), 12))
-elapsed_iters = rb.t + rb.T - idxes % rb.T
-elapsed_samples = rb.B * (elapsed_iters)
-batch = SamplesFromReplayExt(*batch, values=values, age=elapsed_samples)
+# idxes = np.arange(6) + 1
+# batch = rb.extract_batch(idxes, np.zeros_like(idxes), 1)
+# if args.ours:
+#     values = None
+# else:
+#     values = torch.from_numpy(extract_sequences(rb.samples.value, idxes, np.zeros_like(idxes), 12))
+# elapsed_iters = rb.t + rb.T - idxes % rb.T
+# elapsed_samples = rb.B * (elapsed_iters)
+# batch = SamplesFromReplayExt(*batch, values=values, age=elapsed_samples)
 
 # batch = rb.sample_batch(5)
 
@@ -150,8 +172,75 @@ for item in weights.items():
         nw.update({item[0]:item[1]})
 
 algo.model.load_state_dict(nw)
+o = env.reset()
 
-loss = algo.loss(batch)
+data_log = {
+    "eps/rew": 0.,
+    "eps/cl_rew": 0.,
+    "eps/len": 0,
+}
 
-batch = rb.sample_batch(5)
-# batch = SamplesFromReplayExt(*batch, values=)
+for i in range(10000):
+    batch = rb.sample_batch(16)
+    loss = algo.loss(batch)[0]
+
+    algo.optimizer.zero_grad()
+    loss.backward()
+    grad_norm = torch.nn.utils.clip_grad_norm_(algo.model.stem_parameters(), algo.clip_grad_norm)
+    algo.optimizer.step()
+
+    log_dict = {
+        "tr/loss": loss.item(),
+        "tr/grad_norm": grad_norm.item(),
+        "itr": i
+    }
+
+    if i % algo.target_update_interval == 0:
+        algo.agent.update_target(algo.target_update_tau)
+
+        # while not os.path.exists(f'../wcheck_{i}.pt'):
+        #     time.sleep(1)
+
+        # while True:
+        #     try:
+        #         tw = torch.load(f'../wcheck_{i}.pt')
+        #         os.remove(f'../wcheck_{i}.pt')
+        #         print(f"loaded weights {i}")
+        #         break
+        #     except:
+                # pass
+        
+        # diff = 0.
+        # for item in weights.items():
+        #     if item[0].split('.')[0] == 'encoder':
+        #         diff += (algo.agent.model.state_dict()['.'.join(item[0].split('.')[1:])] - item[1].cpu()).abs().sum()
+        #     else:
+        #         diff += (algo.agent.model.state_dict()[item[0]] - item[1].cpu()).abs().sum()
+
+        # log_dict.update({"tr/diff": diff})
+
+    out = algo.agent.step(torch.from_numpy(o).unsqueeze(0), None, None)
+    env_out = env.step(out.action)
+
+    log_dict.update({"tr/value": out.agent_info.p.mean()})
+
+    o = env_out.observation
+    if env_out.env_info.traj_done:
+        log_dict.update(data_log)
+        log_dict.update({
+            "eps/mean_rew": data_log["eps/rew"] / data_log["eps/len"],
+            "eps/mean_cl_rew": data_log["eps/cl_rew"] / data_log["eps/len"],
+        })
+
+        data_log = {
+            "eps/rew": 0.,
+            "eps/cl_rew": 0.,
+            "eps/len": 0,
+        }
+        o = env.reset()
+    else:
+        data_log["eps/rew"] += env_out.env_info.game_score
+        data_log["eps/cl_rew"] += env_out.reward
+        data_log["eps/len"] += 1
+
+    wandb.log(log_dict)

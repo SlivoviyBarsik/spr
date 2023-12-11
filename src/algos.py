@@ -10,6 +10,9 @@ from rlpyt.utils.logging import logger
 from src.rlpyt_buffer import AsyncPrioritizedSequenceReplayFrameBufferExtended, \
     AsyncUniformSequenceReplayFrameBufferExtended
 from src.models import from_categorical, to_categorical
+
+from src.replay_buffer import ReplayBuffer
+
 SamplesToBuffer = namedarraytuple("SamplesToBuffer",
     ["observation", "action", "reward", "done"])
 ModelSamplesToBuffer = namedarraytuple("SamplesToBuffer",
@@ -83,6 +86,7 @@ class SPRCategoricalDQN(CategoricalDQN):
             buffer = AsyncPrioritizedSequenceReplayFrameBufferExtended(**replay_kwargs)
         else:
             buffer = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+            # buffer = ReplayBuffer(**replay_kwargs)
 
         self.replay_buffer = buffer
 
@@ -228,7 +232,10 @@ class SPRCategoricalDQN(CategoricalDQN):
         # with zeros where next value should not be added.
         next_z = z * (self.discount ** self.n_step_return)  # [P']
         next_z = torch.ger(1 - samples.done_n[index].float(), next_z)  # [B,P']
-        ret = samples.return_[index].unsqueeze(1)  # [B,1]
+        if samples.return_[index].shape != (16,1):
+            ret = samples.return_[index].unsqueeze(1)  # [B,1]
+        else:
+            ret = samples.return_[index]
         next_z = torch.clamp(ret + next_z, self.V_min, self.V_max)  # [B,P']
 
         z_bc = z.view(1, -1, 1)  # [1,P,1]
