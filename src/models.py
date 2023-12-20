@@ -803,11 +803,11 @@ class Conv2dModel(torch.nn.Module):
             strides = ones
         else:
             maxp_strides = ones
-        conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
+        self.conv_layers = [torch.nn.Conv2d(in_channels=ic, out_channels=oc,
             kernel_size=k, stride=s, padding=p) for (ic, oc, k, s, p) in
             zip(in_channels, channels, kernel_sizes, strides, paddings)]
         sequence = list()
-        for conv_layer, maxp_stride in zip(conv_layers, maxp_strides):
+        for conv_layer, maxp_stride in zip(self.conv_layers, maxp_strides):
             sequence.extend([conv_layer, nonlinearity()])
             if dropout > 0:
                 sequence.append(nn.Dropout(dropout))

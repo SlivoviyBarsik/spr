@@ -154,21 +154,22 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
                     self.wandb_info[k + "Median"] = np.median(values)
                     if k == 'GameScore':
                         game = self.sampler.env_kwargs['game']
-                        random_score = atari_random_scores[game]
-                        der_score = atari_der_scores[game]
-                        nature_score = atari_nature_scores[game]
-                        human_score = atari_human_scores[game]
-                        normalized_score = (np.average(values) - random_score) / (human_score - random_score)
-                        der_normalized_score = (np.average(values) - random_score) / (der_score - random_score)
-                        nature_normalized_score = (np.average(values) - random_score) / (nature_score - random_score)
-                        self.wandb_info[k + "Normalized"] = normalized_score
-                        self.wandb_info[k + "DERNormalized"] = der_normalized_score
-                        self.wandb_info[k + "NatureNormalized"] = nature_normalized_score
+                        if game in atari_random_scores:
+                            random_score = atari_random_scores[game]
+                            der_score = atari_der_scores[game]
+                            nature_score = atari_nature_scores[game]
+                            human_score = atari_human_scores[game]
+                            normalized_score = (np.average(values) - random_score) / (human_score - random_score)
+                            der_normalized_score = (np.average(values) - random_score) / (der_score - random_score)
+                            nature_normalized_score = (np.average(values) - random_score) / (nature_score - random_score)
+                            self.wandb_info[k + "Normalized"] = normalized_score
+                            self.wandb_info[k + "DERNormalized"] = der_normalized_score
+                            self.wandb_info[k + "NatureNormalized"] = nature_normalized_score
 
-                        maybe_update_summary(k+"Best", np.average(values))
-                        maybe_update_summary(k+"NormalizedBest", normalized_score)
-                        maybe_update_summary(k+"DERNormalizedBest", der_normalized_score)
-                        maybe_update_summary(k+"NatureNormalizedBest", nature_normalized_score)
+                            maybe_update_summary(k+"Best", np.average(values))
+                            maybe_update_summary(k+"NormalizedBest", normalized_score)
+                            maybe_update_summary(k+"DERNormalizedBest", der_normalized_score)
+                            maybe_update_summary(k+"NatureNormalizedBest", nature_normalized_score)
 
         if self._opt_infos:
             for k, v in self._opt_infos.items():
@@ -212,6 +213,8 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
 
         wandb.define_metric("data_step")
         wandb.define_metric("entropy/*", step_metric="data_step")
+        wandb.define_metric("value/*", step_metric="data_step")
+        wandb.define_metric("actions/*", step_metric="data_step")
         wandb.define_metric("eps/*", step_metric="data_step")
 
         self.n_itr = n_itr
@@ -321,6 +324,8 @@ class SerialSampler(BaseSampler):
             eval_CollectorCls=SerialEvalCollector, **kwargs):
         super().__init__(*args, CollectorCls=CollectorCls,
             eval_CollectorCls=eval_CollectorCls, **kwargs)
+        
+        self._actions_log = None
 
     def initialize(
             self,
@@ -400,12 +405,20 @@ class SerialSampler(BaseSampler):
         obs_pyt, act_pyt, rew_pyt = torchify_buffer(self.agent_inputs)
         act_pyt, agent_info = self.collector.agent.step(obs_pyt, act_pyt, rew_pyt)
 
+        if self._actions_log is None:
+            self._actions_log = np.zeros(agent_info.p.shape[0])
+
+        self._actions_log[act_pyt] += 1
         act_probs = agent_info.p.softmax(-1)
         log_dict = {
             "entropy/entropy": -(act_probs * act_probs.log()).sum().item(),
             "entropy/max_prob": act_probs.max().item(),
+            "value/mean_state_value": agent_info.p.mean(),
+            "value/state_value_std": agent_info.p.std(),
             "data_step": itr
         }
+
+        # log actions
 
         if len(completed_infos):
             for inf in completed_infos:
@@ -415,6 +428,12 @@ class SerialSampler(BaseSampler):
                     "eps/ep_mean_rew": inf['GameScore'] / inf['Length'],
                     "eps/ep_mean_clipped_rew": inf['Return'] / inf['Length']
                 })
+
+                for a in range(self._actions_log.shape[0]):
+                    log_dict.update({
+                        f"actions/freq_action_{a}": self._actions_log[a] / inf['Length']
+                    })
+                self._actions_log = np.zeros_like(self._actions_log)
 
         wandb.log(log_dict)
 

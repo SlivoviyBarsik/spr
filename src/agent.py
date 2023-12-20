@@ -15,6 +15,7 @@ class SPRAgent(AtariCatDqnAgent):
         """Standard init, and set the number of probability atoms (bins)."""
         super().__init__(**kwargs)
         self.eval = eval
+        self.device = 'cuda'
 
     def __call__(self, observation, prev_action, prev_reward, train=False):
         """Returns Q-values for states/observations (with grad)."""
