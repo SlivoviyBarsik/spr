@@ -37,14 +37,14 @@ class ReplayBuffer(object):
         """
         if counter is None:
             counter = Value('i', 0)
-        if shm is None:
-            shm = make_shm("spr_shared_mem_" + str(int(time.time())), img_size=example.observation.shape[-1], channel_dim=example.observation.shape[1])
+        # if shm is None:
+        #     shm = make_shm("spr_shared_mem_" + str(int(time.time())), img_size=example.observation.shape[-1], channel_dim=example.observation.shape[1])
         self._obs_storage = np.ndarray([
-            size + example.observation.shape[0] - 1, 1, *example.observation.shape[1:]], buffer=shm[0].buf, dtype=float)
-        self._action_storage = np.ndarray([size, 1], buffer=shm[1].buf)
-        self._reward_storage = np.ndarray([size, 1], buffer=shm[2].buf)
-        self._done_storage = np.ndarray([size, 1], buffer=shm[3].buf)
-        self._valid_idxs = np.ndarray([size], buffer=shm[4].buf)
+            size + example.observation.shape[0] - 1, 1, *example.observation.shape[1:]], dtype=float)
+        self._action_storage = np.ndarray([size, 1])
+        self._reward_storage = np.ndarray([size, 1])
+        self._done_storage = np.ndarray([size, 1])
+        self._valid_idxs = np.ndarray([size])
 
         self.shm = shm  # we need to keep references to the shared memory regions around since otherwise the gc collects them and we get segfaults
 
@@ -95,7 +95,7 @@ class ReplayBuffer(object):
 
         self._next_idx.value = idx + 1
 
-        if False and enable_write and self._next_idx.value % 256 == 0: # TODO: add to config
+        if enable_write and self._next_idx.value % 256 == 0: # TODO: add to config
             self._write_to_disk(self._next_idx.value - 256, self._next_idx.value)
 
 

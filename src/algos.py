@@ -1,3 +1,6 @@
+import os
+import pwd
+import time
 import torch
 import wandb
 
@@ -106,6 +109,47 @@ class SPRCategoricalDQN(CategoricalDQN):
             self.optimizer.load_state_dict(self.initial_optim_state_dict)
         if self.prioritized_replay:
             self.pri_beta_itr = max(1, self.pri_beta_steps // self.sampler_bs)
+
+    def initialize(self, *args, **kwargs):
+        slurm_id = os.environ.get('SLURM_JOB_ID')
+        if slurm_id is None:
+            chpt = './checkpoint'
+            slurm_id = 'None'
+        else:
+            chpt = '/checkpoint'
+        
+        self.chpt_path = os.path.join(
+            chpt, pwd.getpwuid(os.getuid())[0],
+            str(slurm_id), 'ch.pt')
+        
+        
+        super().initialize(*args, **kwargs)
+
+        self.replay_buffer.buffer_dir = os.path.join(
+            chpt, pwd.getpwuid(os.getuid())[0],
+            str(slurm_id), 'buffer'
+        )
+        os.makedirs(self.replay_buffer.buffer_dir, exist_ok=True)
+
+        if os.path.exists(self.chpt_path):
+            chpt = torch.load(self.chpt_path)
+            print(f"{time.ctime()}: Restarting from checkpoint at step {chpt['itr']}")
+            self.agent.model.load_state_dict(chpt['model'])
+            self.agent.update_target()
+    
+            self.replay_buffer.restart_from_chpt(chpt['itr'])
+
+    def make_chpt(self, itr: int) -> None:
+        data = dict(
+            wandb_id=wandb.run.id,
+            itr=itr,
+            model=self.agent.model.state_dict()
+        )
+        os.makedirs(os.path.dirname(self.chpt_path), exist_ok=True)
+        temp_path = os.path.join(os.path.dirname(self.chpt_path), "temp.pt")
+
+        torch.save(data, temp_path)
+        os.replace(temp_path, self.chpt_path)
 
     def samples_to_buffer(self, samples):
         """Defines how to add data from sampler into the replay buffer. Called

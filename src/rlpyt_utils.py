@@ -201,7 +201,7 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
         logger.log("Evaluation runs complete.")
         return traj_infos, eval_time
 
-    def train(self):
+    def train(self, start: int=0):
         """
         Performs startup, evaluates the initial agent, then loops by
         alternating between ``sampler.obtain_samples()`` and
@@ -221,7 +221,7 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
         with logger.prefix(f"itr #0 "):
             eval_traj_infos, eval_time = self.evaluate_agent(0)
             self.log_diagnostics(0, eval_traj_infos, eval_time)
-        for itr in range(n_itr):
+        for itr in range(start, n_itr):
             logger.set_iteration(itr)
             with logger.prefix(f"itr #{itr} "):
                 self.agent.sample_mode(itr)
@@ -230,6 +230,7 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
                 opt_info = self.algo.optimize_agent(itr, samples)
                 self.store_diagnostics(itr, traj_infos, opt_info)
                 if (itr + 1) % self.log_interval_itrs == 0:
+                    self.algo.make_chpt(itr + 1)
                     eval_traj_infos, eval_time = self.evaluate_agent(itr)
                     self.log_diagnostics(itr, eval_traj_infos, eval_time)
         self.shutdown()
