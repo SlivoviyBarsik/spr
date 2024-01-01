@@ -85,8 +85,8 @@ class SPRCategoricalDQN(CategoricalDQN):
             # replay_kwargs["input_priorities"] = self.input_priorities
             buffer = AsyncPrioritizedSequenceReplayFrameBufferExtended(**replay_kwargs)
         else:
-            buffer = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
-            # buffer = ReplayBuffer(**replay_kwargs)
+            # buffer = AsyncUniformSequenceReplayFrameBufferExtended(**replay_kwargs)
+            buffer = ReplayBuffer(**replay_kwargs)
 
         self.replay_buffer = buffer
 
@@ -232,7 +232,7 @@ class SPRCategoricalDQN(CategoricalDQN):
         # with zeros where next value should not be added.
         next_z = z * (self.discount ** self.n_step_return)  # [P']
         next_z = torch.ger(1 - samples.done_n[index].float(), next_z)  # [B,P']
-        if samples.return_[index].shape != (16,1):
+        if samples.return_[index].shape != (samples.all_observation.shape[1],1):
             ret = samples.return_[index].unsqueeze(1)  # [B,1]
         else:
             ret = samples.return_[index]

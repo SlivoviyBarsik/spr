@@ -126,7 +126,7 @@ class ReplayBuffer(object):
         done_n = np.stack(done_n)
 
         return SamplesFromReplay(
-            all_observation = torch.from_numpy(observations).float(),
+            all_observation = torch.from_numpy(observations).to(torch.uint8),
             all_action = torch.from_numpy(np.stack(actions, 1)).int(),
             all_reward = torch.from_numpy(np.stack(reward, 1)),
             return_ = torch.from_numpy(np.stack(returns)).unsqueeze(0),
