@@ -154,9 +154,9 @@ if __name__ == "__main__":
 
     if args.public:
         wandb.init(anonymous="allow", config=args, id=wandb_id,
-                   tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
+                   tags=[args.tag] if args.tag else None, dir=args.wandb_dir, resume='allow')
     else:
-        wandb.init(project=args.project, entity=args.entity, config=args, tags=[args.tag] if args.tag else None, dir=args.wandb_dir)
+        wandb.init(project=args.project, entity=args.entity, config=args, tags=[args.tag] if args.tag else None, dir=args.wandb_dir, resume='allow')
     wandb.config.update(vars(args))
     wandb.config.update({'slurm_id': slurm_id})
     build_and_train(game=args.game,
