@@ -159,7 +159,7 @@ if __name__ == "__main__":
         wandb.init(project=args.project, entity=args.entity, config=args, id=wandb_id, 
                    tags=[args.tag] if args.tag else None, dir=args.wandb_dir, resume='allow')
     wandb.config.update(vars(args))
-    wandb.config.update({'slurm_id': slurm_id})
+    wandb.config.update({'slurm_id': slurm_id}, allow_val_change=True)
     build_and_train(game=args.game,
                     cuda_idx=args.cuda_idx,
                     args=args)
