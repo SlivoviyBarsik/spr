@@ -26,7 +26,7 @@ from src.rlpyt_atari_env import AtariEnv
 from src.utils import set_config
 
 
-def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None):
+def build_and_train(game="pong", run_ID=0, cuda_idx=0, start=0, args=None):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     env = AtariEnv
@@ -64,7 +64,7 @@ def build_and_train(game="pong", run_ID=0, cuda_idx=0, args=None):
     name = "dqn_" + game
     log_dir = "logs"
     with logger_context(log_dir, run_ID, name, config, snapshot_mode="last"):
-        runner.train()
+        runner.train(start=start)
 
     quit()
 
@@ -162,5 +162,5 @@ if __name__ == "__main__":
     wandb.config.update({'slurm_id': slurm_id}, allow_val_change=True)
     build_and_train(game=args.game,
                     cuda_idx=args.cuda_idx,
-                    args=args)
+                    args=args, start=start)
 

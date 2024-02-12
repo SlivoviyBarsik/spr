@@ -209,7 +209,7 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
         specified log interval.
         """
         n_itr = self.startup()
-        wandb.watch(self.agent.model, log='all', log_freq=10)
+        # wandb.watch(self.agent.model, log='all', log_freq=10)
 
         wandb.define_metric("data_step")
         wandb.define_metric("entropy/*", step_metric="data_step")

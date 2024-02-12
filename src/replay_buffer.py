@@ -74,7 +74,7 @@ class ReplayBuffer(object):
     def append_samples(self, samples):
         self.add(
             samples.observation[:,:,-1],
-            samples.action, samples.reward, samples.done
+            samples.action, samples.reward, samples.done,
         )
 
     def add(self, obs_t: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, done, enable_write: bool=True) -> None:
