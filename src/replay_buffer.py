@@ -9,6 +9,7 @@ import numpy as np
 from multiprocessing import shared_memory, Value
 
 from rlpyt.replays.sequence.n_step import SamplesFromReplay
+import wandb
 
 
 def make_shm(base_name: str='', replay_buffer_size: int=1000000, img_size: int=84, channel_dim: int=1) -> List[shared_memory.SharedMemory]:
@@ -151,6 +152,7 @@ class ReplayBuffer(object):
                 and 0 otherwise.
         """
         idxes = np.random.randint(0, len(self) - self.n_step - self.n_stacked, size=batch_size)
+        wandb.log({'mean_sampled_idx': idxes.mean()})
         return self.extract_batch(idxes)
 
 
