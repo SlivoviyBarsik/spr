@@ -1,6 +1,8 @@
+from copy import deepcopy
 import os
 import pwd
 import time
+from typing import Dict
 import torch
 import wandb
 
@@ -136,14 +138,30 @@ class SPRCategoricalDQN(CategoricalDQN):
             print(f"{time.ctime()}: Restarting from checkpoint at step {chpt['itr']}")
             self.agent.model.load_state_dict(chpt['model'])
             self.agent.update_target()
+
+            self.load_optim_state_dict(chpt['optim'])
     
             self.replay_buffer.restart_from_chpt(chpt['itr'])
+
+    def load_optim_state(self, state_dict: Dict) -> None:
+        optimizer_to(self.optimizer, 'cpu')
+        self.optimizer.load_state_dict(state_dict)
+        optimizer_to(self.optimizer, 'cuda')
+
+    def get_optim_state(self) -> Dict:
+        # NOT SENDING THE OPTIMIZER TO CPU CAUSES A SEGFAULT NASTIA STOP
+        optimizer_to(self.optimizer, 'cpu')
+        state = deepcopy(self.optimizer.state_dict())
+        optimizer_to(self.optimizer, 'cuda')
+
+        return state
 
     def make_chpt(self, itr: int) -> None:
         data = dict(
             wandb_id=wandb.run.id,
             itr=itr,
-            model=self.agent.model.state_dict()
+            model=self.agent.model.state_dict(),
+            optim=self.optim_state_dict()
         )
         os.makedirs(os.path.dirname(self.chpt_path), exist_ok=True)
         temp_path = os.path.join(os.path.dirname(self.chpt_path), "temp.pt")
@@ -394,3 +412,18 @@ class SPRCategoricalDQN(CategoricalDQN):
                spr_loss.mean(), \
                model_spr_loss.mean(), \
                log_dict,
+
+
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        # Not sure there are any global tensors in the state dict
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)

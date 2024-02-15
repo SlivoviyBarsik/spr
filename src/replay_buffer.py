@@ -12,24 +12,10 @@ from rlpyt.replays.sequence.n_step import SamplesFromReplay
 import wandb
 
 
-def make_shm(base_name: str='', replay_buffer_size: int=1000000, img_size: int=84, channel_dim: int=1) -> List[shared_memory.SharedMemory]:
-    try:
-        shm = [shared_memory.SharedMemory(name=base_name+'0', create=True, size=replay_buffer_size*(img_size**2)*16*channel_dim),
-            shared_memory.SharedMemory(name=base_name+'1', create=True, size=replay_buffer_size*16),
-            shared_memory.SharedMemory(name=base_name+'2', create=True, size=replay_buffer_size*16),
-            shared_memory.SharedMemory(name=base_name+'3', create=True, size=replay_buffer_size*16),
-            shared_memory.SharedMemory(name=base_name+'4', create=True, size=replay_buffer_size*16),]
-    except FileExistsError:
-        shm = [shared_memory.SharedMemory(name=base_name+str(i)) for i in range(5)]
-
-    return shm
-
-
 class ReplayBuffer(object):
     def __init__(self, 
                  example, size, B, batch_T, discount, n_step_return,
-                 counter: Value=None,
-                 shm: List[shared_memory.SharedMemory]=None, **kwargs) -> None:
+                 counter: Value=None, **kwargs) -> None:
         """
         Implements a ring buffer (FIFO).
 
@@ -47,7 +33,6 @@ class ReplayBuffer(object):
         self._done_storage = np.ndarray([size, 1])
         self._valid_idxs = np.ndarray([size])
 
-        self.shm = shm  # we need to keep references to the shared memory regions around since otherwise the gc collects them and we get segfaults
 
         self.n_stacked = example.observation.shape[-4]
         self.n_step = n_step_return
@@ -109,7 +94,7 @@ class ReplayBuffer(object):
         gamma_support = np.power(self.gamma, np.arange(self.n_step))
 
         for i in idxes:
-            multiplier = np.expand_dims((1 - self._done_storage[i:i+self.n_step].cumsum()) + self._done_storage[i:i+self.n_step].squeeze(-1), -1)
+            multiplier = np.expand_dims((1 - self._done_storage[i:i+self.n_step].cumsum().astype(bool)) + self._done_storage[i:i+self.n_step].squeeze(-1), -1)
             r_i = np.dot(gamma_support, self._reward_storage[i:i+self.n_step] * multiplier)
             returns.append(r_i)
 
