@@ -63,7 +63,7 @@ class ReplayBuffer(object):
             samples.action, samples.reward, samples.done,
         )
 
-    def add(self, obs_t: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, done, enable_write: bool=True) -> None:
+    def add(self, obs_t: torch.Tensor, action: torch.Tensor, reward: torch.Tensor, done: torch.Tensor, enable_write: bool=True, sync:bool = False) -> None:
         """
         add a new transition to the buffer
 
@@ -71,10 +71,14 @@ class ReplayBuffer(object):
         :param action: (Union[np.ndarray, int]) the action
         :param reward: (float) the reward of the transition
         :param done: (bool) is the episode done
+        :param sync: (bool) whether the data is all from the same timestep. used when reloading from disk
         """
         # This code assumes that there is only a single process writing to the replay buffer
         idx = self._next_idx.value
-        self._obs_storage[[idx + self.n_stacked - 1]] = obs_t
+        if not sync:
+            self._obs_storage[[idx + self.n_stacked - 1]] = obs_t
+        else:
+            self._obs_storage[[idx]] = obs_t
         self._action_storage[idx] = action
         self._reward_storage[idx] = reward
         self._done_storage[idx] = done
@@ -168,7 +172,7 @@ class ReplayBuffer(object):
             for idx in range(int(env_step), min(int(env_step) + len(obs), restart_at_env_step)):
                 assert idx == self._next_idx.value
 
-                self.add(obs[idx-env_step], actions[idx-env_step], rewards[idx-env_step], done[idx-env_step], False)
+                self.add(obs[idx-env_step], actions[idx-env_step], rewards[idx-env_step], done[idx-env_step], False, sync=True)
 
             if int(env_step) + len(obs) >= restart_at_env_step:
                 os.remove(fn)

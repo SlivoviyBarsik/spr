@@ -139,9 +139,13 @@ if __name__ == "__main__":
     parser.add_argument('--ep-lives', type=int, default=1)
     args = parser.parse_args()
 
-    slurm_id = str(os.environ.get('SLURM_JOB_ID'))
-    chpt_path = os.path.join(
-        '/checkpoint', pwd.getpwuid(os.getuid())[0], slurm_id, 'ch.pt')
+    slurm_id = os.environ.get('SLURM_JOB_ID')   
+    if slurm_id is None:
+        chpt = './checkpoint'
+        slurm_id = 'None'
+    else:
+        chpt = '/checkpoint'
+    chpt_path = os.path.join(chpt, pwd.getpwuid(os.getuid())[0], str(slurm_id), 'ch.pt')
         
     if os.path.exists(chpt_path):
         chpt = torch.load(chpt_path)
