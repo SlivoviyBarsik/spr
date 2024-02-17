@@ -218,10 +218,9 @@ class MinibatchRlEvalWandb(MinibatchRlEval):
         wandb.define_metric("eps/*", step_metric="data_step")
 
         self.n_itr = n_itr
-        if start == 0:
-            with logger.prefix(f"itr #0 "):
-                eval_traj_infos, eval_time = self.evaluate_agent(0)
-                self.log_diagnostics(0, eval_traj_infos, eval_time)
+        with logger.prefix(f"itr #0 "):
+            eval_traj_infos, eval_time = self.evaluate_agent(0)
+            self.log_diagnostics(0, eval_traj_infos, eval_time)
         for itr in range(start, n_itr):
             logger.set_iteration(itr)
             with logger.prefix(f"itr #{itr} "):
