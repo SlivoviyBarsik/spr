@@ -75,10 +75,8 @@ class ReplayBuffer(object):
         """
         # This code assumes that there is only a single process writing to the replay buffer
         idx = self._next_idx.value
-        if not sync:
-            self._obs_storage[[idx + self.n_stacked - 1]] = obs_t
-        else:
-            self._obs_storage[[idx]] = obs_t
+        
+        self._obs_storage[[idx + self.n_stacked - 1]] = obs_t
         self._action_storage[idx] = action
         self._reward_storage[idx] = reward
         self._done_storage[idx] = done
@@ -147,7 +145,7 @@ class ReplayBuffer(object):
 
     def _write_to_disk(self, start_idx: int=0, stop_idx: int=-1) -> None:
         data = (
-            self._obs_storage[start_idx:stop_idx],
+            self._obs_storage[start_idx + self.n_stacked - 1:stop_idx + self.n_stacked - 1],
             self._action_storage[start_idx:stop_idx],
             self._reward_storage[start_idx:stop_idx],
             self._done_storage[start_idx:stop_idx],
